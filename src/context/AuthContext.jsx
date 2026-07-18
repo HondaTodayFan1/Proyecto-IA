@@ -5,6 +5,7 @@ import { AuthContext } from './authContextBase'
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(null)
   const [profile, setProfile] = useState(null)
+  const [profileError, setProfileError] = useState('')
   const [loading, setLoading] = useState(true)
   const [profileLoading, setProfileLoading] = useState(true)
 
@@ -36,12 +37,16 @@ export function AuthProvider({ children }) {
       if (!session?.user) {
         if (isMounted) {
           setProfile(null)
+          setProfileError('')
           setProfileLoading(false)
         }
         return
       }
 
-      if (isMounted) setProfileLoading(true)
+      if (isMounted) {
+        setProfileLoading(true)
+        setProfileError('')
+      }
 
       const { data, error } = await supabase
         .from('profiles')
@@ -51,6 +56,7 @@ export function AuthProvider({ children }) {
 
       if (!isMounted) return
       setProfile(error ? null : data)
+      setProfileError(error ? error.message : '')
       setProfileLoading(false)
     }
 
@@ -84,6 +90,7 @@ export function AuthProvider({ children }) {
     session,
     user: session?.user ?? null,
     profile,
+    profileError,
     rol: profile?.rol ?? null,
     loading,
     profileLoading,

@@ -921,6 +921,40 @@ Cuando estos puntos estén confirmados por el usuario (no por este agente, que n
 
 ---
 
+## 31. Despliegue real y hallazgos en producción (2026-07-17)
+
+A diferencia de las fases anteriores, esto sí se ejecutó contra infraestructura real (el usuario tiene git, GitHub, Netlify y Supabase con credenciales, algo que este agente nunca tuvo). Progreso:
+
+- ✅ Repositorio git inicializado localmente y subido a `https://github.com/HondaTodayFan1/Proyecto-IA` (rama `main`). Se verificó antes del commit que `.env.local` y `.claude/settings.local.json` quedaran excluidos (el segundo no estaba cubierto por `*.local` — se corrigió `.gitignore`).
+- ✅ Sitio conectado en Netlify (`proyectoiacalculadora.netlify.app`), build exitoso confirmado por el título de la página desplegada.
+- ✅ Las 7 migraciones (`0001`-`0007`) aplicadas por el usuario en el proyecto Supabase real, sin errores.
+- ✅ Diagnosticado y resuelto: pantalla en blanco por variables de entorno de Netlify no configuradas en el primer deploy (`VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` se hornean en build time con Vite — agregarlas requiere un redeploy, no basta con guardarlas).
+- ✅ Diagnosticado: `email rate limit exceeded` del servicio de correo compartido de Supabase durante las pruebas de registro — se desactivó "Confirm email" temporalmente para desbloquear el registro en esta etapa de pruebas (con nota de reactivarlo junto con SMTP propio antes de uso real).
+
+### 🐛 Bug real encontrado al promover el primer admin: `0008_fix_profile_trigger_dashboard.sql`
+
+Al intentar promover al primer usuario a `admin` editando `profiles.rol` directamente desde el **Table Editor de Supabase**, el cambio no se guardaba (sin error visible) y la app mostraba `rol: cargando...` de forma indefinida.
+
+**Causa raíz**: el trigger `protect_profile_privileged_columns` (agregado en `0007` para prevenir auto-escalación de privilegios, ver sección 29) revertía `rol`/`activo` a su valor anterior cuando `is_admin(auth.uid())` era falso. Pero `auth.uid()` es `NULL` no solo para un usuario no-admin autenticado, sino **también** para cualquier operación hecha desde el Table Editor/SQL Editor del dashboard o vía `service_role` — contextos que ya están fuera del alcance de RLS y son inherentemente de confianza. El trigger no distinguía "usuario autenticado no-admin" (el caso que sí debe bloquearse) de "sin sesión de usuario en absoluto" (dashboard/service_role), y terminaba bloqueando la única forma de arrancar el sistema: promover manualmente al primer admin.
+
+**Por qué el fix sigue siendo seguro** (verificado antes de aplicarlo, no solo asumido): un cliente verdaderamente anónimo (sin JWT) tampoco tiene `auth.uid()`, pero las políticas RLS de `UPDATE` en `profiles` (`id = auth.uid()` / `is_admin(auth.uid())`) ya bloquean ese caso *antes* de que la fila llegue al trigger — RLS nunca deja pasar un `UPDATE` anónimo. La única forma real de ejecutar el trigger con `auth.uid() is null` es un contexto que ya bypasea RLS (dashboard, `service_role`, migraciones), que ya es de máxima confianza en el modelo de seguridad de Supabase. El fix no abre ninguna vía nueva de escalación de privilegios para un usuario final autenticado con la `anon key`.
+
+**Fix**: `supabase/migrations/0008_fix_profile_trigger_dashboard.sql` — el trigger ahora solo revierte `rol`/`activo` cuando `auth.uid() is not null and not is_admin(auth.uid())` (usuario autenticado real que no es admin). Sin sesión de usuario, pasa sin restricción.
+
+**⚠️ Pendiente de acción manual del usuario**: aplicar `0008_fix_profile_trigger_dashboard.sql` en el SQL Editor de Supabase (después de `0007`), y volver a intentar la promoción a admin desde el Table Editor.
+
+### Mejora de UX relacionada: estado "cargando" ambiguo
+
+Independientemente del bug del trigger, se encontró que `AuthContext.jsx` usaba `profile === null` tanto para "todavía cargando" como para "falló la carga" — ambos casos mostraban `rol: cargando...` en el Dashboard **para siempre** si la carga fallaba, sin ninguna señal de error. Se agregó un estado `profileError` explícito (aditivo, no cambia el flujo de sesión/rol existente) y `Dashboard.jsx` ahora distingue tres estados: cargando, error (con mensaje visible), o el rol real. Esto no habría arreglado el bug del trigger, pero habría hecho mucho más rápido diagnosticar que algo fallaba en vez de asumir que "todavía estaba cargando".
+
+**Verificación técnica ejecutada por el agente:**
+- ✔ `npm run test` → 27/27 tests ejecutables en verde.
+- ✔ Compila (`npm run build` exitoso).
+- ✔ `npm run lint` sin errores ni warnings.
+- ✔ No se modificó el flujo de autenticación existente — `profileError` es un campo nuevo del contexto, no reemplaza a `profile`/`rol`/`profileLoading`.
+
+---
+
 ## Próximo paso sugerido
 
 Todas las 10 fases del plan, la auditoría de base de datos, la auditoría UX y la auditoría CTO pre-lanzamiento están completas o documentadas. El código está en el mejor estado posible sin acceso a infraestructura real. El siguiente paso es que el usuario recorra el checklist de la sección 30 para pasar de "código listo" a "producción verificada".
