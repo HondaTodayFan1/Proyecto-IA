@@ -1,0 +1,22 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# La app usa react-router en modo cliente (BrowserRouter): sin esta regla,
+# recargar una ruta como /empleados/123 devolvería 404 en vez de servir la SPA.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Cabeceras de seguridad base. No se incluye Content-Security-Policy: requiere
+# probarse contra la URL real del proyecto Supabase (fetch/XHR) y este agente
+# no tiene acceso a red para verificarla sin riesgo de romper la app en vivo —
+# ver informe de auditoría en PLAN_MAESTRO.md.
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=()"

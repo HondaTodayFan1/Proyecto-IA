@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run lint
+
+      - run: npm run build
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Levantar Supabase local y aplicar migraciones
+        run: supabase start
+
+      - name: Tests (unitarios + componentes + integración RLS contra Supabase local)
+        run: npm run test
+        env:
+          # supabase start expone siempre esta URL/anon key por defecto en local.
+          SUPABASE_TEST_URL: http://127.0.0.1:54321
+          SUPABASE_TEST_ANON_KEY: ${{ secrets.SUPABASE_LOCAL_ANON_KEY }}
+
+      - run: supabase stop
+        if: always()
