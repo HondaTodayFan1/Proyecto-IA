@@ -963,7 +963,7 @@ Se revisaron todas las demás políticas del esquema (`grep` de `from public.pro
 
 **Fix**: `supabase/migrations/0009_fix_profiles_select_recursion.sql` — reemplaza el `exists(...)` inline por `public.is_admin(auth.uid())`, manteniendo exactamente la misma semántica (propio perfil o admin) sin recursión.
 
-**⚠️ Pendiente de acción manual del usuario**: aplicar `0009_fix_profiles_select_recursion.sql` en el SQL Editor de Supabase (después de `0008`).
+**✅ Aplicado y verificado por el usuario (2026-07-17)**: `0009` corrió sin errores en el proyecto real, y tras el redeploy el Dashboard muestra `rol: admin` correctamente. Los dos bugs de esta sección (trigger de `profiles` y recursión de RLS) quedan confirmados como resueltos en producción, no solo en teoría.
 
 ---
 
