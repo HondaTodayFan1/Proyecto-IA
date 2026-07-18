@@ -953,6 +953,18 @@ Independientemente del bug del trigger, se encontró que `AuthContext.jsx` usaba
 - ✔ `npm run lint` sin errores ni warnings.
 - ✔ No se modificó el flujo de autenticación existente — `profileError` es un campo nuevo del contexto, no reemplaza a `profile`/`rol`/`profileLoading`.
 
+### 🐛 Segundo bug real: `infinite recursion detected in policy for relation "profiles"` — `0009_fix_profiles_select_recursion.sql`
+
+El campo `profileError` recién agregado sirvió exactamente para lo que se pensó: en cuanto apareció, expuso este segundo bug, mucho más serio que el del trigger, en vez de quedar oculto detrás de un "cargando..." infinito.
+
+**Causa raíz**: `profiles_select_own_or_admin` (política de `SELECT` sobre `profiles`, `0001_init.sql`) se escribió **antes** de que existiera `public.is_admin()` (introducida recién en `0002_empleados.sql`) y usaba un `exists(select 1 from public.profiles p where p.id = auth.uid() and p.rol = 'admin')` inline. Esa subconsulta contra `profiles` obliga a Postgres a re-evaluar la misma política de `profiles` sobre sí misma → recursión infinita, que Postgres detecta y aborta con ese error en vez de colgarse. Todas las políticas escritas *después* de la Fase 1 ya usan `is_admin()` (segura porque es `SECURITY DEFINER`, bypassa RLS en su consulta interna), pero esta primera política — la más crítica de todas, porque es la que permite a cualquier usuario leer su propio perfil — se quedó con el patrón inseguro original. Probablemente estuvo latente todo este tiempo porque con pocas filas el planificador de consultas evitaba esa rama del `OR`, hasta que algo (más filas, un plan distinto) lo activó.
+
+Se revisaron todas las demás políticas del esquema (`grep` de `from public.profiles` en las 8 migraciones anteriores) para confirmar que esta era la **única** con el patrón recursivo — todas las demás ya usaban `is_admin()` correctamente.
+
+**Fix**: `supabase/migrations/0009_fix_profiles_select_recursion.sql` — reemplaza el `exists(...)` inline por `public.is_admin(auth.uid())`, manteniendo exactamente la misma semántica (propio perfil o admin) sin recursión.
+
+**⚠️ Pendiente de acción manual del usuario**: aplicar `0009_fix_profiles_select_recursion.sql` en el SQL Editor de Supabase (después de `0008`).
+
 ---
 
 ## Próximo paso sugerido
